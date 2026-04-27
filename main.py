@@ -51,19 +51,38 @@ async def health():
 @limiter.limit("60/minute")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
+    logger.info(
+        "Webhook received: method=%s path=%s body_bytes=%s content_type=%s ua=%s",
+        request.method,
+        request.url.path,
+        len(body),
+        request.headers.get("content-type", ""),
+        request.headers.get("user-agent", ""),
+    )
 
     signature = request.headers.get("X-Notion-Signature", "")
     if not verify_notion_signature(body, signature, WEBHOOK_SIGNING_SECRET):
-        logger.warning("Invalid webhook signature")
+        logger.warning(
+            "Invalid webhook signature: signature_present=%s secret_configured=%s",
+            bool(signature),
+            bool(WEBHOOK_SIGNING_SECRET),
+        )
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     payload = await request.json()
+    event_id = payload.get("id", "")
+    payload_type = payload.get("type", "")
+    logger.info(
+        "Webhook payload parsed: id=%s type=%s verification=%s",
+        event_id,
+        payload_type,
+        is_verification_request(payload),
+    )
 
     if is_verification_request(payload):
         logger.info("Webhook verification request received")
         return {"status": "verified"}
 
-    event_id = payload.get("id", "")
     if event_id and is_duplicate(event_id):
         logger.info(f"Duplicate event ignored: {event_id}")
         return {"status": "ok", "action": "duplicate_ignored"}
