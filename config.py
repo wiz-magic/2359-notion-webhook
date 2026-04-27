@@ -14,7 +14,7 @@ WEBHOOK_PATH_SECRET = os.environ.get("WEBHOOK_PATH_SECRET", "change-me")
 ENABLE_IP_WHITELIST = os.environ.get("ENABLE_IP_WHITELIST", "false").lower() == "true"
 
 # --- Server ---
-SERVER_PORT = int(os.environ.get("SERVER_PORT", "8000"))
+SERVER_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "8000")))
 
 # --- LLM ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
