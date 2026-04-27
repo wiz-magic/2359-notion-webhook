@@ -9,7 +9,6 @@ from config import (
     NOTION_API_TOKEN,
     NOTION_API_VERSION,
     WEBHOOK_SIGNING_SECRET,
-    WEBHOOK_PATH_SECRET,
     SERVER_PORT,
 )
 from middleware import limiter, RequestLoggingMiddleware
@@ -48,7 +47,7 @@ async def health():
     return {"status": "healthy"}
 
 
-@app.post(f"/wh-{WEBHOOK_PATH_SECRET}")
+@app.post("/")
 @limiter.limit("60/minute")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.body()
