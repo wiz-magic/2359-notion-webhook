@@ -47,6 +47,25 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/debug/connection")
+async def debug_connection():
+    result = {
+        "status": "ok",
+        "notion_api_token_configured": bool(NOTION_API_TOKEN),
+        "webhook_signing_secret_configured": bool(WEBHOOK_SIGNING_SECRET),
+        "notion_api_connected": False,
+    }
+    try:
+        me = await notion_client.get_me()
+        result["notion_api_connected"] = True
+        result["notion_bot_id"] = me.get("bot", {}).get("owner", {}).get("workspace_name", "")
+    except Exception as e:
+        logger.error("Notion connection check failed: %s", e, exc_info=True)
+        result["status"] = "error"
+        result["error"] = str(e)
+    return result
+
+
 @app.post("/")
 @limiter.limit("60/minute")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):

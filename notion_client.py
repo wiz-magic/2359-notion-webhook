@@ -61,6 +61,9 @@ class NotionClient:
     async def get_comment(self, comment_id: str) -> dict:
         return await self._request("GET", f"/comments/{comment_id}")
 
+    async def get_me(self) -> dict:
+        return await self._request("GET", "/users/me")
+
     async def create_page(self, parent: dict, properties: dict) -> dict:
         return await self._request("POST", "/pages", json={"parent": parent, "properties": properties})
 
