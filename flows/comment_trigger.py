@@ -82,11 +82,11 @@ async def handle_comment_event(payload: dict, notion: NotionClient) -> dict:
         # Step 7: 중복 확인 (원본 페이지 링크 기준)
         page_url = page.get("url", "")
         if page_url:
-            existing = await notion.query_database(
+            existing_results, _ = await notion.query_database(
                 SETTING_LIST_DB_ID,
                 {"filter": {"property": "원본 페이지 링크", "url": {"equals": page_url}}},
             )
-            if existing:
+            if existing_results:
                 logger.info(f"Flow 1: duplicate entry exists for {page_url}, skipping")
                 return {"status": "ok", "action": "skipped"}
 

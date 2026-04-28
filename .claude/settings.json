@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/2359_이인수/Desktop/2359-notion-webhook\" branch -a)"
+    ]
+  }
+}

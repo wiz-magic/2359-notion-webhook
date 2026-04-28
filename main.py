@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from collections import deque
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from slowapi import _rate_limit_exceeded_handler
@@ -8,11 +9,10 @@ from slowapi.errors import RateLimitExceeded
 from config import (
     NOTION_API_TOKEN,
     NOTION_API_VERSION,
-    WEBHOOK_SIGNING_SECRET,
     SERVER_PORT,
 )
 from middleware import limiter, RequestLoggingMiddleware
-from webhook_handler import verify_notion_signature, is_duplicate, route_event, is_verification_request
+from webhook_handler import verify_notion_signature, is_duplicate, route_event, extract_verification_token, store_verification_token
 from notion_client import NotionClient
 from llm_client import LLMClient
 from flows.comment_trigger import handle_comment_event
@@ -23,6 +23,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+webhook_debug_events = deque(maxlen=30)
 
 notion_client = NotionClient(NOTION_API_TOKEN, NOTION_API_VERSION)
 llm_client = LLMClient()
@@ -66,6 +67,14 @@ async def debug_connection():
     return result
 
 
+@app.get("/debug/webhook-events")
+async def debug_webhook_events():
+    return {
+        "count": len(webhook_debug_events),
+        "events": list(webhook_debug_events),
+    }
+
+
 @app.post("/")
 @limiter.limit("60/minute")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -80,7 +89,13 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     )
 
     signature = request.headers.get("X-Notion-Signature", "")
-    if not verify_notion_signature(body, signature, WEBHOOK_SIGNING_SECRET):
+    if not verify_notion_signature(body, signature):
+        webhook_debug_events.appendleft({
+            "stage": "signature_failed",
+            "signature_present": bool(signature),
+            "secret_configured": bool(WEBHOOK_SIGNING_SECRET),
+            "body_bytes": len(body),
+        })
         logger.warning(
             "Invalid webhook signature: signature_present=%s secret_configured=%s",
             bool(signature),
@@ -92,15 +107,20 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     event_id = payload.get("id", "")
     payload_type = payload.get("type", "")
     logger.info(
-        "Webhook payload parsed: id=%s type=%s verification=%s",
+        "Webhook payload parsed: id=%s type=%s",
         event_id,
         payload_type,
-        is_verification_request(payload),
     )
 
-    if is_verification_request(payload):
-        logger.info("Webhook verification request received")
-        return {"status": "verified"}
+    verification_token = extract_verification_token(payload)
+    if verification_token:
+        store_verification_token(verification_token)
+        logger.info("Webhook verification request received, token stored")
+        webhook_debug_events.appendleft({
+            "stage": "verification_complete",
+            "token_prefix": verification_token[:8],
+        })
+        return {"verification_token": verification_token}
 
     if event_id and is_duplicate(event_id):
         logger.info(f"Duplicate event ignored: {event_id}")
@@ -108,6 +128,11 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
     event_type = route_event(payload)
     logger.info(f"Event received: type={event_type}, id={event_id}")
+    webhook_debug_events.appendleft({
+        "stage": "event_routed",
+        "id": event_id,
+        "event_type": event_type,
+    })
 
     if event_type == "comment":
         background_tasks.add_task(process_comment_flow, payload)
@@ -122,16 +147,32 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 async def process_comment_flow(payload: dict):
     try:
         result = await handle_comment_event(payload, notion_client)
+        webhook_debug_events.appendleft({
+            "stage": "comment_flow_result",
+            "result": result,
+        })
         logger.info(f"Comment flow result: {result}")
     except Exception as e:
+        webhook_debug_events.appendleft({
+            "stage": "comment_flow_error",
+            "error": str(e),
+        })
         logger.error(f"Comment flow error: {e}", exc_info=True)
 
 
 async def process_checkbox_flow(payload: dict):
     try:
         result = await handle_checkbox_event(payload, notion_client)
+        webhook_debug_events.appendleft({
+            "stage": "checkbox_flow_result",
+            "result": result,
+        })
         logger.info(f"Checkbox flow result: {result}")
     except Exception as e:
+        webhook_debug_events.appendleft({
+            "stage": "checkbox_flow_error",
+            "error": str(e),
+        })
         logger.error(f"Checkbox flow error: {e}", exc_info=True)
 
 

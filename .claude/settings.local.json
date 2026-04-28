@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/2359_이인수/Desktop/2359-notion-webhook\" status)",
+      "Bash(git -C \"c:/Users/2359_이인수/Desktop/2359-notion-webhook\" diff 9932070 a4fee73 -- main.py)",
+      "Bash(git -C \"c:/Users/2359_이인수/Desktop/2359-notion-webhook\" remote -v)",
+      "WebSearch",
+      "Bash(git -C \"c:/Users/2359_이인수/Desktop/2359-notion-webhook\" log --oneline --all)",
+      "Read(//c/Users/2359_이인수/.claude/projects/c--Users-2359-----Desktop-2359-notion-webhook/**)",
+      "Bash(python -c ' *)",
+      "Bash(python -u -c ' *)",
+      "Bash(echo \"exit: $?\")",
+      "Read(//c/Users/2359_이인수/.claude/plans/**)",
+      "Bash(python -c \"from config import *; print\\(f'config OK — {len\\(BRAND_DS_ID_MAP\\)} brands loaded'\\)\")",
+      "Bash(timeout 5 python -X utf8 -c ' *)"
+    ]
+  }
+}
