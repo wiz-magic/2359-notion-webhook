@@ -5,7 +5,7 @@ load_dotenv()
 
 # --- Notion API ---
 NOTION_API_TOKEN = os.environ.get("NOTION_API_TOKEN", "")
-NOTION_API_VERSION = os.environ.get("NOTION_API_VERSION", "2026-03-11")
+NOTION_API_VERSION = os.environ.get("NOTION_API_VERSION", "2025-09-03")
 NOTION_BASE_URL = "https://api.notion.com/v1"
 
 # --- Webhook ---
@@ -35,7 +35,7 @@ BRAND_DS_ID_MAP = {
 DS_ID_TO_BRAND_MAP = {v: k for k, v in BRAND_DS_ID_MAP.items()}
 
 # --- Databases ---
-SETTING_LIST_DB_ID = "34f7aa4b7b0f81339e06000c2e54fef3"
+SETTING_LIST_DB_ID = "3427aa4b7b0f802193c7000b4f8fd502"
 
 # --- Flow 1 Constants ---
 TRIGGER_KEYWORDS = ["수정 완료", "완료", "업로드"]

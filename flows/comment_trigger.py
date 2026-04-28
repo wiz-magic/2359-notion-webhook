@@ -106,7 +106,7 @@ async def handle_comment_event(payload: dict, notion: NotionClient) -> dict:
             new_properties["원본 페이지 링크"] = {"url": page_url}
 
         result = await notion.create_page(
-            parent={"database_id": SETTING_LIST_DB_ID},
+            parent={"data_source_id": SETTING_LIST_DB_ID},
             properties=new_properties,
         )
         logger.info(f"Flow 1: created setting list entry for '{ad_name}' (brand: {brand})")

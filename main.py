@@ -12,7 +12,7 @@ from config import (
     SERVER_PORT,
 )
 from middleware import limiter, RequestLoggingMiddleware
-from webhook_handler import verify_notion_signature, is_duplicate, route_event, extract_verification_token, store_verification_token
+from webhook_handler import verify_notion_signature, is_duplicate, route_event, extract_verification_token, store_verification_token, get_verification_token
 from notion_client import NotionClient
 from llm_client import LLMClient
 from flows.comment_trigger import handle_comment_event
@@ -53,13 +53,12 @@ async def debug_connection():
     result = {
         "status": "ok",
         "notion_api_token_configured": bool(NOTION_API_TOKEN),
-        "webhook_signing_secret_configured": bool(WEBHOOK_SIGNING_SECRET),
         "notion_api_connected": False,
     }
     try:
         me = await notion_client.get_me()
         result["notion_api_connected"] = True
-        result["notion_bot_id"] = me.get("bot", {}).get("owner", {}).get("workspace_name", "")
+        result["notion_bot_id"] = me.get("bot", {}).get("workspace_name", "")
     except Exception as e:
         logger.error("Notion connection check failed: %s", e, exc_info=True)
         result["status"] = "error"
@@ -93,17 +92,20 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         webhook_debug_events.appendleft({
             "stage": "signature_failed",
             "signature_present": bool(signature),
-            "secret_configured": bool(WEBHOOK_SIGNING_SECRET),
+            "token_stored": bool(get_verification_token()),
             "body_bytes": len(body),
         })
         logger.warning(
-            "Invalid webhook signature: signature_present=%s secret_configured=%s",
+            "Invalid webhook signature: signature_present=%s token_stored=%s",
             bool(signature),
-            bool(WEBHOOK_SIGNING_SECRET),
+            bool(get_verification_token()),
         )
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
     event_id = payload.get("id", "")
     payload_type = payload.get("type", "")
     logger.info(

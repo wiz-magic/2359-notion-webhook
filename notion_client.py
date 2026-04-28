@@ -45,7 +45,7 @@ class NotionClient:
         payload = {**body}
         if start_cursor:
             payload["start_cursor"] = start_cursor
-        result = await self._request("POST", f"/databases/{database_id}/query", json=payload)
+        result = await self._request("POST", f"/data_sources/{database_id}/query", json=payload)
         return result.get("results", []), result.get("next_cursor")
 
     async def query_database_all(self, database_id: str, body: dict) -> list:
