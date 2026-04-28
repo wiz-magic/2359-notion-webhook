@@ -35,7 +35,7 @@ BRAND_DS_ID_MAP = {
 DS_ID_TO_BRAND_MAP = {v: k for k, v in BRAND_DS_ID_MAP.items()}
 
 # --- Databases ---
-SETTING_LIST_DB_ID = "3427aa4b7b0f802193c7000b4f8fd502"
+SETTING_LIST_DB_ID = "9a84d5d73ba04616abb329fcec2a8751"
 
 # --- Flow 1 Constants ---
 TRIGGER_KEYWORDS = ["수정 완료", "완료", "업로드"]
