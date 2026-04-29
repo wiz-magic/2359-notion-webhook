@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 import logging
+import os
 import time
 
 logger = logging.getLogger(__name__)
@@ -9,27 +10,26 @@ MAX_CACHE_SIZE = 10000
 DEDUP_TTL_SECONDS = 3600
 _processed_events: dict[str, float] = {}
 
-# Notion에서 인증 요청 시 발급받은 verification_token을 저장
-# 이 토큰은 이후 모든 웹훅 이벤트의 HMAC 서명 검증에 사용됨
-_stored_verification_token: str | None = None
+_webhook_signing_secret = os.environ.get("WEBHOOK_SIGNING_SECRET", "")
 
 
 def get_verification_token() -> str | None:
-    return _stored_verification_token
+    return _webhook_signing_secret or None
 
 
 def store_verification_token(token: str):
-    global _stored_verification_token
-    _stored_verification_token = token
-    logger.info("Verification token stored successfully")
+    global _webhook_signing_secret
+    if not _webhook_signing_secret:
+        _webhook_signing_secret = token
+        logger.info("Verification token stored from Notion")
 
 
 def verify_notion_signature(payload_body: bytes, signature_header: str) -> bool:
-    token = _stored_verification_token
-    if not token:
-        logger.warning("No verification token stored; skipping signature check")
+    secret = _webhook_signing_secret
+    if not secret:
+        logger.warning("No signing secret configured; skipping signature check")
         return True
-    computed = hmac.new(token.encode("utf-8"), payload_body, hashlib.sha256).hexdigest()
+    computed = hmac.new(secret.encode("utf-8"), payload_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(f"sha256={computed}", signature_header)
 
 

@@ -9,7 +9,6 @@ NOTION_API_VERSION = os.environ.get("NOTION_API_VERSION", "2025-09-03")
 NOTION_BASE_URL = "https://api.notion.com/v1"
 
 # --- Webhook ---
-WEBHOOK_SIGNING_SECRET = os.environ.get("WEBHOOK_SIGNING_SECRET", "")
 WEBHOOK_PATH_SECRET = os.environ.get("WEBHOOK_PATH_SECRET", "change-me")
 ENABLE_IP_WHITELIST = os.environ.get("ENABLE_IP_WHITELIST", "false").lower() == "true"
 
