@@ -45,7 +45,7 @@ class LLMClient:
         try:
             prompt = INTENT_PROMPT.format(comment_text=comment_text)
             response = await self.client.aio.models.generate_content(
-                model="gemini-2.0-flash-lite",
+                model="gemini-3.1-flash-lite-preview",
                 contents=prompt,
             )
             answer = response.text.strip().lower()
@@ -61,7 +61,7 @@ class LLMClient:
         try:
             prompt = FALLBACK_PARSER_PROMPT.format(ad_name=ad_name)
             response = await self.client.aio.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3-flash-preview",
                 contents=prompt,
             )
             return response.text.strip()

@@ -76,7 +76,7 @@ async def handle_comment_event(payload: dict, notion: NotionClient) -> dict:
 
         # Step 6: 브랜드 결정
         parent = page.get("parent", {})
-        parent_ds_id = parent.get("data_source_id") or parent.get("database_id")
+        parent_ds_id = (parent.get("data_source_id") or parent.get("database_id") or "").replace("-", "")
         brand = DS_ID_TO_BRAND_MAP.get(parent_ds_id, "")
 
         # Step 7: 중복 확인 (원본 페이지 링크 기준)
@@ -92,11 +92,12 @@ async def handle_comment_event(payload: dict, notion: NotionClient) -> dict:
 
         # Step 8: 세팅 리스트에 페이지 추가
         ad_group = _get_property_text(properties, "광고그룹명")
-        campaign = _get_property_text(properties, "광고 ID 목록")  # PRD 5.4 참조
+        campaign_name = _get_property_text(properties, "캠페인명")
 
         new_properties = {
             "이름": {"title": [{"text": {"content": ad_name}}]},
             "광고그룹명": {"rich_text": [{"text": {"content": ad_group}}]},
+            "캠페인명": {"rich_text": [{"text": {"content": campaign_name}}]},
         }
 
         if brand:

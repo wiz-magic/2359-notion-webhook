@@ -39,7 +39,7 @@ async def handle_checkbox_event(payload: dict, notion: NotionClient) -> dict:
         # Step 2: 페이지가 세팅 리스트 DB 소속인지 확인
         page = await notion.get_page(page_id)
         parent = page.get("parent", {})
-        parent_ds_id = parent.get("data_source_id") or parent.get("database_id")
+        parent_ds_id = (parent.get("data_source_id") or parent.get("database_id") or "").replace("-", "")
 
         if parent_ds_id != SETTING_LIST_DB_ID:
             logger.info(f"Flow 2: page {page_id} not in setting list DB, skipping")
