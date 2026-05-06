@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 from typing import Any
 
 from config import (
@@ -17,7 +16,6 @@ from notion_client import NotionClient
 logger = logging.getLogger(__name__)
 
 LLM_CONFIDENCE_THRESHOLD = 0.7
-NOTION_PAGE_ID_PATTERN = re.compile(r"([0-9a-fA-F]{32})(?:\?|$)")
 
 
 def _get_property_checkbox(properties: dict, prop_name: str) -> bool:
@@ -29,20 +27,6 @@ def _get_property_checkbox(properties: dict, prop_name: str) -> bool:
 
 def _normalize_notion_id(value: str | None) -> str:
     return (value or "").replace("-", "")
-
-
-def _format_notion_id(value: str) -> str:
-    raw = _normalize_notion_id(value)
-    if len(raw) != 32:
-        return value
-    return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
-
-
-def _extract_page_id_from_url(url: str) -> str:
-    match = NOTION_PAGE_ID_PATTERN.search(url or "")
-    if not match:
-        return ""
-    return _format_notion_id(match.group(1))
 
 
 def _get_property_select(properties: dict, prop_name: str) -> str:
@@ -236,15 +220,6 @@ async def process_setting_page(
         logger.info(f"Flow 2: no datasource for brand '{brand}', skipping")
         return {"status": "ok", "action": "skipped"}
 
-    source_result = await _update_source_page_from_setting_link(
-        notion,
-        properties,
-        datasource_id,
-        ad_name,
-    )
-    if source_result:
-        return source_result
-
     # Step 6: 소재이름 기반 1차 조회 (contains)
     filter_body = {
         "filter": {
@@ -270,42 +245,14 @@ async def process_setting_page(
     if not exact_matches:
         return {"status": "ok", "action": "no_matches", "updated_count": 0}
 
-    selected_matches = [match for match in exact_matches if get_title(match) == ad_name]
+    selected_matches = exact_matches
     llm_selection = None
 
-    if selected_matches:
-        logger.info(
-            "Flow 2: selected %s exact ad-name matches before LLM",
-            len(selected_matches),
-        )
-    else:
-        setting_context = _build_setting_context(
-            page_id,
-            page,
-            brand,
-            ad_name,
-            material_name,
-        )
-        selected_matches, llm_selection = await _select_matches_with_llm(
-            llm,
-            setting_context,
-            exact_matches,
-        )
-        logger.info(
-            "Flow 2: LLM selection model=%s confidence=%s selected=%s reason=%s",
-            llm_selection.get("model", "") if llm_selection else "",
-            llm_selection.get("confidence", 0.0) if llm_selection else 0.0,
-            len(selected_matches),
-            llm_selection.get("reason", "") if llm_selection else "",
-        )
-        if not selected_matches:
-            return {
-                "status": "ok",
-                "action": "ambiguous_no_selection",
-                "updated_count": 0,
-                "candidate_count": len(exact_matches),
-                "llm_selection": llm_selection,
-            }
+    logger.info(
+        "Flow 2: selected %s material-name matches for '%s'",
+        len(selected_matches),
+        material_name,
+    )
 
     # Step 7: 상태 일괄 변경
     updated_count = 0
@@ -329,91 +276,6 @@ async def process_setting_page(
         "selected_count": len(selected_matches),
         "llm_selection": llm_selection,
     }
-
-
-async def _update_source_page_from_setting_link(
-    notion: NotionClient,
-    setting_properties: dict,
-    datasource_id: str,
-    ad_name: str,
-) -> dict | None:
-    source_page_id = _extract_page_id_from_url(
-        _get_property_text(setting_properties, "원본 페이지 링크")
-    )
-    if not source_page_id:
-        return None
-
-    try:
-        source_page = await notion.get_page(source_page_id)
-    except Exception as e:
-        logger.warning(
-            "Flow 2: source page lookup failed; falling back to search "
-            "(source_page_id=%s): %s",
-            source_page_id,
-            e,
-        )
-        return None
-
-    source_parent = source_page.get("parent", {})
-    source_parent_ds_id = _normalize_notion_id(
-        source_parent.get("data_source_id") or source_parent.get("database_id")
-    )
-    if source_parent_ds_id != _normalize_notion_id(datasource_id):
-        logger.info(
-            "Flow 2: source page parent mismatch; falling back to search "
-            "(source_parent_ds_id=%s, expected=%s)",
-            source_parent_ds_id,
-            datasource_id,
-        )
-        return None
-
-    source_title = get_title(source_page)
-    if source_title != ad_name:
-        logger.info(
-            "Flow 2: source page title mismatch; falling back to search "
-            "(source_title=%s, setting_title=%s)",
-            source_title,
-            ad_name,
-        )
-        return None
-
-    source_status = _get_property_text(source_page.get("properties", {}), "상태")
-    if source_status == TARGET_STATUS:
-        logger.info("Flow 2: source page already %s: %s", TARGET_STATUS, source_title)
-        return {
-            "status": "ok",
-            "action": "already_updated",
-            "updated_count": 0,
-            "candidate_count": 1,
-            "selected_count": 1,
-            "llm_selection": None,
-        }
-    if source_status not in QUERY_STATUSES:
-        logger.info(
-            "Flow 2: source page status '%s' is not actionable for %s",
-            source_status,
-            source_title,
-        )
-        return {
-            "status": "ok",
-            "action": "source_status_not_actionable",
-            "updated_count": 0,
-            "candidate_count": 1,
-            "selected_count": 0,
-            "llm_selection": None,
-        }
-
-    await notion.update_page(source_page_id, {"상태": {"status": {"name": TARGET_STATUS}}})
-    logger.info("Flow 2: updated source page '%s' -> %s", source_title, TARGET_STATUS)
-    return {
-        "status": "ok",
-        "action": "status_updated",
-        "updated_count": 1,
-        "candidate_count": 1,
-        "selected_count": 1,
-        "llm_selection": None,
-    }
-
 
 async def reconcile_checked_settings(
     notion: NotionClient,
