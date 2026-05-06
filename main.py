@@ -112,7 +112,7 @@ async def process_comment_flow(payload: dict):
 
 async def process_checkbox_flow(payload: dict):
     try:
-        result = await handle_checkbox_event(payload, notion_client)
+        result = await handle_checkbox_event(payload, notion_client, llm_client)
         logger.info(f"Checkbox flow result: {result}")
     except Exception as e:
         logger.error(f"Checkbox flow error: {e}", exc_info=True)
