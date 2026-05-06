@@ -12,6 +12,8 @@ from config import (
     NOTION_API_MAX_RETRIES,
     NOTION_API_MAX_RPS,
     NOTION_API_VERSION,
+    RECONCILE_CHECKED_SETTINGS_COOLDOWN_SECONDS,
+    RECONCILE_CHECKED_SETTINGS_ON_WEBHOOK,
     SERVER_PORT,
     WEBHOOK_MAX_BODY_BYTES,
 )
@@ -28,7 +30,7 @@ from webhook_handler import (
 from notion_client import NotionClient
 from llm_client import LLMClient
 from flows.comment_trigger import handle_comment_event
-from flows.checkbox_trigger import handle_checkbox_event
+from flows.checkbox_trigger import handle_checkbox_event, reconcile_checked_settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +46,8 @@ notion_client = NotionClient(
     max_retries=NOTION_API_MAX_RETRIES,
 )
 llm_client = LLMClient()
+_reconcile_lock = asyncio.Lock()
+_last_reconcile_started_at = 0.0
 
 
 @asynccontextmanager
@@ -65,6 +69,11 @@ async def health():
         "webhook_verification_token_configured": bool(get_verification_token()),
         "dedup_cache_size": get_dedup_cache_size(),
     }
+
+
+@app.get("/")
+async def root():
+    return await health()
 
 
 @app.post("/")
@@ -128,6 +137,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(process_comment_flow, payload)
     elif event_type == "checkbox":
         background_tasks.add_task(process_checkbox_flow, payload)
+    elif payload_type == "page.properties_updated":
+        maybe_schedule_reconcile(background_tasks, payload)
     else:
         logger.info(f"Unknown event type, ignoring: {event_type}")
 
@@ -166,6 +177,54 @@ async def process_checkbox_flow(payload: dict):
         )
     except Exception as e:
         logger.error(f"Checkbox flow error: {e}", exc_info=True)
+
+
+def maybe_schedule_reconcile(background_tasks: BackgroundTasks, payload: dict):
+    if not RECONCILE_CHECKED_SETTINGS_ON_WEBHOOK:
+        logger.info("Reconcile skipped: disabled by configuration")
+        return
+    logger.info(
+        "Scheduling checked setting reconciliation after %s event id=%s",
+        payload.get("type", ""),
+        payload.get("id", ""),
+    )
+    background_tasks.add_task(process_reconcile_flow, payload)
+
+
+async def process_reconcile_flow(payload: dict | None = None):
+    global _last_reconcile_started_at
+    now = asyncio.get_running_loop().time()
+
+    if now - _last_reconcile_started_at < RECONCILE_CHECKED_SETTINGS_COOLDOWN_SECONDS:
+        logger.info(
+            "Reconcile skipped: cooldown active (event_id=%s)",
+            (payload or {}).get("id", ""),
+        )
+        return
+
+    if _reconcile_lock.locked():
+        logger.info(
+            "Reconcile skipped: already running (event_id=%s)",
+            (payload or {}).get("id", ""),
+        )
+        return
+
+    async with _reconcile_lock:
+        _last_reconcile_started_at = asyncio.get_running_loop().time()
+        try:
+            result = await asyncio.wait_for(
+                reconcile_checked_settings(notion_client, llm_client),
+                timeout=FLOW_TASK_TIMEOUT_SECONDS,
+            )
+            logger.info(f"Reconcile flow result: {result}")
+        except asyncio.TimeoutError:
+            logger.error(
+                "Reconcile flow timed out after %ss: event_id=%s",
+                FLOW_TASK_TIMEOUT_SECONDS,
+                (payload or {}).get("id", ""),
+            )
+        except Exception as e:
+            logger.error(f"Reconcile flow error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
