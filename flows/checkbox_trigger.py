@@ -24,6 +24,10 @@ def _get_property_checkbox(properties: dict, prop_name: str) -> bool:
     return False
 
 
+def _normalize_notion_id(value: str | None) -> str:
+    return (value or "").replace("-", "")
+
+
 def _get_property_select(properties: dict, prop_name: str) -> str:
     prop = properties.get(prop_name, {})
     if prop.get("type") == "select":
@@ -148,12 +152,25 @@ async def handle_checkbox_event(
             logger.info("Flow 2: page_id missing, skipping")
             return {"status": "ok", "action": "skipped"}
 
+        parent_ds_id = _normalize_notion_id(
+            payload.get("data", {}).get("parent", {}).get("data_source_id")
+        )
+        if parent_ds_id and parent_ds_id != _normalize_notion_id(SETTING_LIST_DB_ID):
+            logger.info(
+                "Flow 2: parent data source is not setting list, skipping "
+                "(parent_ds_id=%s)",
+                parent_ds_id,
+            )
+            return {"status": "ok", "action": "skipped"}
+
         # Step 2: 페이지가 세팅 리스트 DB 소속인지 확인
         page = await notion.get_page(page_id)
         parent = page.get("parent", {})
-        parent_ds_id = (parent.get("data_source_id") or parent.get("database_id") or "").replace("-", "")
+        parent_ds_id = _normalize_notion_id(
+            parent.get("data_source_id") or parent.get("database_id")
+        )
 
-        if parent_ds_id != SETTING_LIST_DB_ID:
+        if parent_ds_id != _normalize_notion_id(SETTING_LIST_DB_ID):
             logger.info(f"Flow 2: page {page_id} not in setting list DB, skipping")
             return {"status": "ok", "action": "skipped"}
 

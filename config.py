@@ -10,10 +10,24 @@ NOTION_BASE_URL = "https://api.notion.com/v1"
 
 # --- Webhook ---
 WEBHOOK_PATH_SECRET = os.environ.get("WEBHOOK_PATH_SECRET", "change-me")
+WEBHOOK_VERIFICATION_TOKEN = (
+    os.environ.get("WEBHOOK_VERIFICATION_TOKEN")
+    or os.environ.get("WEBHOOK_SIGNING_SECRET")
+    or ""
+)
 ENABLE_IP_WHITELIST = os.environ.get("ENABLE_IP_WHITELIST", "false").lower() == "true"
+WEBHOOK_MAX_BODY_BYTES = int(os.environ.get("WEBHOOK_MAX_BODY_BYTES", "262144"))
+WEBHOOK_DEDUP_TTL_SECONDS = int(os.environ.get("WEBHOOK_DEDUP_TTL_SECONDS", "90000"))
+WEBHOOK_DEDUP_MAX_CACHE_SIZE = int(os.environ.get("WEBHOOK_DEDUP_MAX_CACHE_SIZE", "50000"))
+FLOW_TASK_TIMEOUT_SECONDS = int(os.environ.get("FLOW_TASK_TIMEOUT_SECONDS", "180"))
 
 # --- Server ---
 SERVER_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "8000")))
+
+# --- Notion API Safety ---
+NOTION_API_MAX_RPS = float(os.environ.get("NOTION_API_MAX_RPS", "2.5"))
+NOTION_API_MAX_CONCURRENCY = int(os.environ.get("NOTION_API_MAX_CONCURRENCY", "3"))
+NOTION_API_MAX_RETRIES = int(os.environ.get("NOTION_API_MAX_RETRIES", "5"))
 
 # --- LLM ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")

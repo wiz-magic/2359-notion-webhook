@@ -1,17 +1,30 @@
 import logging
+import asyncio
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 
 from config import (
+    FLOW_TASK_TIMEOUT_SECONDS,
     NOTION_API_TOKEN,
+    NOTION_API_MAX_CONCURRENCY,
+    NOTION_API_MAX_RETRIES,
+    NOTION_API_MAX_RPS,
     NOTION_API_VERSION,
     SERVER_PORT,
+    WEBHOOK_MAX_BODY_BYTES,
 )
-from middleware import limiter, RequestLoggingMiddleware
-from webhook_handler import verify_notion_signature, is_duplicate, route_event, extract_verification_token, store_verification_token
+from middleware import RequestLoggingMiddleware
+from webhook_handler import (
+    get_dedup_cache_size,
+    get_verification_token,
+    verify_notion_signature,
+    is_duplicate,
+    route_event,
+    extract_verification_token,
+    store_verification_token,
+)
 from notion_client import NotionClient
 from llm_client import LLMClient
 from flows.comment_trigger import handle_comment_event
@@ -23,7 +36,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-notion_client = NotionClient(NOTION_API_TOKEN, NOTION_API_VERSION)
+notion_client = NotionClient(
+    NOTION_API_TOKEN,
+    NOTION_API_VERSION,
+    max_rps=NOTION_API_MAX_RPS,
+    max_concurrency=NOTION_API_MAX_CONCURRENCY,
+    max_retries=NOTION_API_MAX_RETRIES,
+)
 llm_client = LLMClient()
 
 
@@ -37,19 +56,31 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RequestLoggingMiddleware)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "webhook_verification_token_configured": bool(get_verification_token()),
+        "dedup_cache_size": get_dedup_cache_size(),
+    }
 
 
 @app.post("/")
-@limiter.limit("60/minute")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > WEBHOOK_MAX_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Body too large")
+        except ValueError:
+            logger.warning("Invalid content-length header: %s", content_length)
+
     body = await request.body()
+    if len(body) > WEBHOOK_MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Body too large")
+
     logger.info(
         "Webhook received: method=%s path=%s body_bytes=%s content_type=%s ua=%s",
         request.method,
@@ -59,6 +90,17 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         request.headers.get("user-agent", ""),
     )
 
+    try:
+        payload = json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    verification_token = extract_verification_token(payload)
+    if verification_token:
+        store_verification_token(verification_token)
+        logger.info("Webhook verification request received, token stored")
+        return {"verification_token": verification_token}
+
     signature = request.headers.get("X-Notion-Signature", "")
     if not verify_notion_signature(body, signature):
         logger.warning(
@@ -67,10 +109,6 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         )
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
     event_id = payload.get("id", "")
     payload_type = payload.get("type", "")
     logger.info(
@@ -78,12 +116,6 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         event_id,
         payload_type,
     )
-
-    verification_token = extract_verification_token(payload)
-    if verification_token:
-        store_verification_token(verification_token)
-        logger.info("Webhook verification request received, token stored")
-        return {"verification_token": verification_token}
 
     if event_id and is_duplicate(event_id):
         logger.info(f"Duplicate event ignored: {event_id}")
@@ -104,16 +136,34 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
 async def process_comment_flow(payload: dict):
     try:
-        result = await handle_comment_event(payload, notion_client)
+        result = await asyncio.wait_for(
+            handle_comment_event(payload, notion_client),
+            timeout=FLOW_TASK_TIMEOUT_SECONDS,
+        )
         logger.info(f"Comment flow result: {result}")
+    except asyncio.TimeoutError:
+        logger.error(
+            "Comment flow timed out after %ss: event_id=%s",
+            FLOW_TASK_TIMEOUT_SECONDS,
+            payload.get("id", ""),
+        )
     except Exception as e:
         logger.error(f"Comment flow error: {e}", exc_info=True)
 
 
 async def process_checkbox_flow(payload: dict):
     try:
-        result = await handle_checkbox_event(payload, notion_client, llm_client)
+        result = await asyncio.wait_for(
+            handle_checkbox_event(payload, notion_client, llm_client),
+            timeout=FLOW_TASK_TIMEOUT_SECONDS,
+        )
         logger.info(f"Checkbox flow result: {result}")
+    except asyncio.TimeoutError:
+        logger.error(
+            "Checkbox flow timed out after %ss: event_id=%s",
+            FLOW_TASK_TIMEOUT_SECONDS,
+            payload.get("id", ""),
+        )
     except Exception as e:
         logger.error(f"Checkbox flow error: {e}", exc_info=True)
 

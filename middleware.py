@@ -1,12 +1,7 @@
 import logging
 import time
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
 logger = logging.getLogger(__name__)
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
 class RequestLoggingMiddleware:
@@ -30,4 +25,4 @@ class RequestLoggingMiddleware:
 
         await self.app(scope, receive, send_wrapper)
         duration = time.time() - start
-        logger.info(f"{method} {path} → {status_code} ({duration:.3f}s)")
+        logger.info(f"{method} {path} -> {status_code} ({duration:.3f}s)")
