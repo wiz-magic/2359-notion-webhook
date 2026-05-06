@@ -36,15 +36,51 @@ def _has_trigger_keyword(text: str) -> bool:
     return any(kw in text for kw in TRIGGER_KEYWORDS)
 
 
+def _extract_comment_context(payload: dict) -> tuple[str, str]:
+    entity = payload.get("entity", {})
+    data = payload.get("data", {})
+    comment_data = payload.get("comment", {})
+
+    comment_id = comment_data.get("id", "")
+    if not comment_id and entity.get("type") == "comment":
+        comment_id = entity.get("id", "")
+
+    comment_parent = comment_data.get("parent", {})
+    data_parent = data.get("parent", {})
+    page_id = (
+        data.get("page_id")
+        or (
+            data_parent.get("id", "")
+            if data_parent.get("type") == "page"
+            else ""
+        )
+        or (
+            comment_parent.get("page_id", "")
+            if comment_parent.get("type") == "page_id"
+            else ""
+        )
+        or (
+            entity.get("id", "")
+            if entity.get("type") == "page"
+            else ""
+        )
+    )
+
+    return comment_id, page_id
+
+
 async def handle_comment_event(payload: dict, notion: NotionClient) -> dict:
     try:
         # Step 1: comment_id, page_id 추출
-        comment_data = payload.get("comment", {})
-        comment_id = comment_data.get("id", "")
-        page_id = payload.get("entity", {}).get("id", "")
+        comment_id, page_id = _extract_comment_context(payload)
 
         if not comment_id or not page_id:
-            logger.info("Flow 1: comment_id or page_id missing, skipping")
+            logger.info(
+                "Flow 1: comment_id or page_id missing, skipping "
+                "(entity_type=%s, data_keys=%s)",
+                payload.get("entity", {}).get("type", ""),
+                list(payload.get("data", {}).keys()),
+            )
             return {"status": "ok", "action": "skipped"}
 
         # Step 2: 댓글 텍스트 조회

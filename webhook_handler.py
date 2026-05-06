@@ -49,9 +49,9 @@ def is_duplicate(event_id: str) -> bool:
 
 def route_event(payload: dict) -> str:
     event_type = payload.get("type", "")
-    if "comment" in event_type:
+    if event_type.startswith("comment."):
         return "comment"
-    if "page" in event_type:
+    if event_type == "page.properties_updated":
         return "checkbox"
     return "unknown"
 
